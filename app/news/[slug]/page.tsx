@@ -1,67 +1,30 @@
-'use client'
-
-import { useEffect, useState, useCallback } from 'react'
-import { supabase } from '@/utils/supabase'
-import { useRouter } from 'next/navigation'
-import { use } from 'react'
+import { createClient } from '@/utils/supabase-server'
 import Link from 'next/link'
 import Image from 'next/image'
+import { notFound } from 'next/navigation'
+import type { Metadata as NextMetadata } from "next/types"
 
-interface News {
-  id: string
-  title: string
-  content: string
-  cover_image: string
-  created_at: string
+interface Params {
   slug: string
 }
 
-interface PageProps {
-  params: Promise<{ slug: string }>
-}
+export type Metadata = NextMetadata;
 
-export default function NewsPage({ params }: PageProps) {
-  const [news, setNews] = useState<News | null>(null)
-  const [loading, setLoading] = useState(true)
-  const router = useRouter()
-  const resolvedParams = use(params)
+export const revalidate = 60
 
-  const loadNews = useCallback(async () => {
-    try {
-      setLoading(true)
-      const { data, error } = await supabase
-        .from('news')
-        .select('*')
-        .eq('slug', resolvedParams.slug)
-        .single()
+export default async function NewsPage({ params }: { params: Promise<Params> }) {
+  const resolvedParams = await params
+  const supabase = createClient()
+  
+  const { data: news } = await supabase
+    .from('news')
+    .select('*')
+    .eq('slug', resolvedParams.slug)
+    .single()
 
-      if (error) throw error
-      if (data) {
-        setNews(data)
-      } else {
-        throw new Error('Новость не найдена')
-      }
-    } catch (error) {
-      console.error('Ошибка при загрузке новости:', error instanceof Error ? error.message : 'Неизвестная ошибка')
-      router.push('/')
-    } finally {
-      setLoading(false)
-    }
-  }, [resolvedParams.slug, router])
-
-  useEffect(() => {
-    loadNews()
-  }, [loadNews])
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
-      </div>
-    )
+  if (!news) {
+    notFound()
   }
-
-  if (!news) return null
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -96,6 +59,7 @@ export default function NewsPage({ params }: PageProps) {
               fill
               className="object-cover"
               sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+              priority
             />
           </div>
           <div className="p-6 md:p-8">
@@ -108,7 +72,7 @@ export default function NewsPage({ params }: PageProps) {
               })}
             </div>
             <div className="prose max-w-none">
-              {news.content.split('\n').map((paragraph, index) => (
+              {news.content.split('\n').map((paragraph: string, index: number) => (
                 <p key={index} className="mb-4 text-gray-700 leading-relaxed whitespace-pre-wrap">
                   {paragraph}
                 </p>
@@ -119,4 +83,31 @@ export default function NewsPage({ params }: PageProps) {
       </main>
     </div>
   )
+}
+
+export async function generateMetadata({ params }: { params: Promise<Params> }): Promise<Metadata> {
+  const resolvedParams = await params
+  const supabase = createClient()
+  
+  const { data: news } = await supabase
+    .from('news')
+    .select('*')
+    .eq('slug', resolvedParams.slug)
+    .single()
+
+  if (!news) {
+    return {
+      title: 'Новость не найдена',
+    }
+  }
+
+  return {
+    title: news.title,
+    description: news.content.slice(0, 160),
+    openGraph: {
+      title: news.title,
+      description: news.content.slice(0, 160),
+      images: [news.cover_image],
+    },
+  }
 }
